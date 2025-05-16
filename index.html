@@ -1,119 +1,310 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Detecție Postură Web</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postură + Siluetă Ideală</title>
     <style>
         body {
             margin: 0;
-            font-family: Arial, sans-serif;
-            text-align: center;
             background: #111;
-            color: white;
+            font-family: Arial;
+            display: flex;
+            flex-direction: row;
+            height: 100vh;
+            overflow: hidden;
         }
-        canvas, video {
+        #mainContainer {
+            position: relative;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        }
+        #videoContainer {
+            position: relative;
+            width: 80%;
+            height: 70%;
+            max-width: 900px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 40px;
+        }
+        video, canvas#output {
             position: absolute;
-            left: 0;
             top: 0;
-            z-index: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
         #postureStatus {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 1.2em;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 16px;
+            border-radius: 12px;
+            z-index: 999;
+            text-align: center;
+            max-width: 90%;
+        }
+        #postureData {
             position: absolute;
             top: 20px;
-            left: 20px;
-            z-index: 1;
-            font-size: 1.5em;
-            background: rgba(0,0,0,0.5);
-            padding: 10px 15px;
+            right: 20px;
+            z-index: 2;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px;
             border-radius: 10px;
+            font-size: 0.9em;
+        }
+        #postureData table {
+            border-collapse: collapse;
+        }
+        #postureData td {
+            padding: 4px 10px;
+        }
+        #chartContainer {
+            width: 100vw;
+            height: 200px;
+            background: rgba(255, 255, 255, 0.05);
+            z-index: 3;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+        }
+        #threeContainer {
+            width: 400px;
+            background: #000;
+            height: 100vh;
         }
     </style>
 </head>
 <body>
-<div id="postureStatus">Analiză postură...</div>
-<video id="video" autoplay playsinline muted></video>
-<canvas id="output"></canvas>
+<div id="mainContainer">
+    <div id="videoContainer">
+        <div id="postureStatus">🔎 Analiză postură în curs...</div>
+        <div id="postureData">
+            <table>
+                <tr><td>🟢 Umeri (dif.):</td><td id="shoulderDiff">-</td></tr>
+                <tr><td>🔵 Coloană (°):</td><td id="spineAngle">-</td></tr>
+                <tr><td>📏 Înălțime estimată:</td><td id="heightEstimate">-</td></tr>
+                <tr><td>📊 Status:</td><td id="postureLabel">-</td></tr>
+            </table>
+        </div>
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="output"></canvas>
+    </div>
+    <div id="chartContainer">
+        <canvas id="postureChart"></canvas>
+    </div>
+</div>
+<div id="threeContainer"></div>
 
-<!-- MediaPipe Pose -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
 <script>
     const videoElement = document.getElementById('video');
     const canvasElement = document.getElementById('output');
     const canvasCtx = canvasElement.getContext('2d');
-    const statusEl = document.getElementById('postureStatus');
+    const postureStatus = document.getElementById('postureStatus');
+    const postureLabel = document.getElementById('postureLabel');
+    const shoulderDiffCell = document.getElementById('shoulderDiff');
+    const spineAngleCell = document.getElementById('spineAngle');
+    const heightEstimateCell = document.getElementById('heightEstimate');
 
-    const pose = new Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`,
-    });
-
-    pose.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        enableSegmentation: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-    });
-
-    pose.onResults(onResults);
-
-    function onResults(results) {
-        canvasElement.width = videoElement.videoWidth;
-        canvasElement.height = videoElement.videoHeight;
-
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-        if (results.poseLandmarks) {
-            const leftShoulder = results.poseLandmarks[11];
-            const rightShoulder = results.poseLandmarks[12];
-
-            // Desenează puncte
-            for (const lm of results.poseLandmarks) {
-                canvasCtx.beginPath();
-                canvasCtx.arc(lm.x * canvasElement.width, lm.y * canvasElement.height, 5, 0, 2 * Math.PI);
-                canvasCtx.fillStyle = "cyan";
-                canvasCtx.fill();
-            }
-
-            // Desenează linia dintre umeri
-            const x1 = leftShoulder.x * canvasElement.width;
-            const y1 = leftShoulder.y * canvasElement.height;
-            const x2 = rightShoulder.x * canvasElement.width;
-            const y2 = rightShoulder.y * canvasElement.height;
-
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(x1, y1);
-            canvasCtx.lineTo(x2, y2);
-            canvasCtx.strokeStyle = "yellow";
-            canvasCtx.lineWidth = 3;
-            canvasCtx.stroke();
-
-            // Analiză postură simplă
-            const shoulderDiff = Math.abs(y1 - y2);
-            if (shoulderDiff > 30) {
-                statusEl.textContent = "⚠️ Postură incorectă: umerii nu sunt aliniați!";
-                statusEl.style.color = "red";
-            } else {
-                statusEl.textContent = "✅ Postură corectă";
-                statusEl.style.color = "lightgreen";
+    const chartCtx = document.getElementById('postureChart').getContext('2d');
+    const chartData = {
+        labels: [],
+        datasets: [{
+            label: 'Unghi coloană (°)',
+            data: [],
+            borderColor: 'cyan',
+            backgroundColor: 'rgba(0,255,255,0.1)',
+            tension: 0.1
+        }]
+    };
+    const postureChart = new Chart(chartCtx, {
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            animation: false,
+            scales: {
+                x: { display: false },
+                y: { beginAtZero: true, max: 90 }
             }
         }
+    });
 
-        canvasCtx.restore();
-    }
+    const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}` });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
     const camera = new Camera(videoElement, {
-        onFrame: async () => {
-            await pose.send({ image: videoElement });
-        },
+        onFrame: async () => { await pose.send({ image: videoElement }); },
         width: 640,
         height: 480,
     });
-
     camera.start();
+
+    const threeContainer = document.getElementById('threeContainer');
+    const scene = new THREE.Scene();
+    const camera3D = new THREE.PerspectiveCamera(75, threeContainer.clientWidth / threeContainer.clientHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+    threeContainer.appendChild(renderer.domElement);
+    camera3D.position.z = 2;
+
+    const jointSpheres = [];
+    const skeletonLines = [];
+    const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+    const sphereGeometry = new THREE.SphereGeometry(0.015);
+    for (let i = 0; i < 33; i++) {
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        scene.add(sphere);
+        jointSpheres.push(sphere);
+    }
+
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffff00 });
+    const connections = [[11,13],[13,15],[12,14],[14,16],[11,12],[11,23],[12,24],[23,25],[25,27],[24,26],[26,28],[27,31],[28,32],[23,24]];
+    for (const [start, end] of connections) {
+        const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const line = new THREE.Line(geometry, lineMaterial);
+        scene.add(line);
+        skeletonLines.push({ line, start, end });
+    }
+
+    function update3DModel(landmarks) {
+        for (let i = 0; i < landmarks.length; i++) {
+            const { x, y, z } = landmarks[i];
+            jointSpheres[i].position.set(x - 0.5, -y + 0.5, -z);
+        }
+        for (const seg of skeletonLines) {
+            const start = jointSpheres[seg.start].position;
+            const end = jointSpheres[seg.end].position;
+            seg.line.geometry.setFromPoints([start, end]);
+        }
+    }
+
+    function animate3D() {
+        requestAnimationFrame(animate3D);
+        renderer.render(scene, camera3D);
+    }
+    animate3D();
+
+    function getAngleDeg(a, b, c) {
+        const ab = { x: b.x - a.x, y: b.y - a.y };
+        const cb = { x: b.x - c.x, y: b.y - c.y };
+        const dot = ab.x * cb.x + ab.y * cb.y;
+        const magAB = Math.hypot(ab.x, ab.y);
+        const magCB = Math.hypot(cb.x, cb.y);
+        return Math.acos(dot / (magAB * magCB)) * (180 / Math.PI);
+    }
+
+    let prevRightAnkleY = null;
+    let stepCount = 0;
+    let walkStatus = "-";
+
+    pose.onResults((results) => {
+        if (!results.poseLandmarks) return;
+        update3DModel(results.poseLandmarks);
+
+    // Actualizare model 3D
+    update3DModel(results.poseLandmarks);
+
+    // 🔲 Procesare și desenare 2D pe canvas
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    const lm = results.poseLandmarks;
+    const leftShoulder = lm[11];
+    const rightShoulder = lm[12];
+    const shoulderCenter = { x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2 };
+    const leftHip = lm[23];
+    const rightHip = lm[24];
+    const hipCenter = { x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2 };
+    const dx = (hipCenter.x - shoulderCenter.x) * canvasElement.width;
+    const dy = (hipCenter.y - shoulderCenter.y) * canvasElement.height;
+    const angleDeg = Math.abs(Math.atan2(dx, dy) * 180 / Math.PI);
+    shoulderDiffCell.textContent = Math.abs(leftShoulder.y - rightShoulder.y).toFixed(1) * canvasElement.height + " px";
+    spineAngleCell.textContent = angleDeg.toFixed(1) + "°";
+
+    const leftAnkle = lm[27];
+    const rightAnkle = lm[28];
+    const headY = lm[0].y;
+    const heightRatio = (Math.max(leftAnkle.y, rightAnkle.y) - headY);
+    heightEstimateCell.textContent = (heightRatio * canvasElement.height).toFixed(0) + " px";
+
+    const techNeck = ((lm[0].x - (leftShoulder.x + rightShoulder.x)/2) * canvasElement.width > 30);
+    const sitting = ((lm[25].y + lm[26].y)/2 * canvasElement.height - (leftHip.y + rightHip.y)/2 * canvasElement.height < 20);
+    const handUp = getAngleDeg(leftShoulder, lm[13], lm[15]) < 70;
+
+    if (prevRightAnkleY !== null && Math.abs(rightAnkle.y - prevRightAnkleY) * canvasElement.height > 10) stepCount++;
+    prevRightAnkleY = rightAnkle.y;
+    if (stepCount > 10) { walkStatus = "🚶 Mers detectat"; stepCount = 0; }
+
+    let msg = "✅ Postură corectă";
+    if (techNeck) msg += " | ⚠️ Tech neck";
+    if (sitting) msg += " | 🪑 Stă jos"; else msg += " | 🧍‍♂️ În picioare";
+    if (handUp) msg += " | ✋ Mână sus";
+    if (walkStatus !== "-") msg += ` | ${walkStatus}`;
+    postureLabel.textContent = postureStatus.textContent = msg;
+
+    // 🔲 Siluetă ideală
+    const centerX = canvasElement.width / 2;
+    const centerY = canvasElement.height / 2;
+    const scale = canvasElement.height / 2.2;
+    canvasCtx.strokeStyle = "rgba(255,255,255,0.15)";
+    for (const [start, end] of connections) {
+    const ax = centerX + (start % 2 === 0 ? -1 : 1) * 0.15 * scale;
+    const bx = centerX + (end % 2 === 0 ? -1 : 1) * 0.15 * scale;
+    const ay = centerY + (start / 33 - 0.5) * scale;
+    const by = centerY + (end / 33 - 0.5) * scale;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(ax, ay);
+    canvasCtx.lineTo(bx, by);
+    canvasCtx.stroke();
+    }
+
+    // 🔵 Scheletul actual
+    for (const [i, p] of lm.entries()) {
+    canvasCtx.beginPath();
+    canvasCtx.arc(p.x * canvasElement.width, p.y * canvasElement.height, 4, 0, 2 * Math.PI);
+    canvasCtx.fillStyle = "#00ffff";
+    canvasCtx.fill();
+    }
+    for (const [startIdx, endIdx] of connections) {
+    const a = lm[startIdx];
+    const b = lm[endIdx];
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(a.x * canvasElement.width, a.y * canvasElement.height);
+    canvasCtx.lineTo(b.x * canvasElement.width, b.y * canvasElement.height);
+    canvasCtx.strokeStyle = "#00ff88";
+    canvasCtx.lineWidth = 3;
+    canvasCtx.stroke();
+    }
+
+    chartData.labels.push(new Date().toLocaleTimeString());
+    chartData.datasets[0].data.push(angleDeg);
+    if (chartData.labels.length > 30) {
+    chartData.labels.shift();
+    chartData.datasets[0].data.shift();
+    }
+    postureChart.update();
+    canvasCtx.restore();
+    });
 </script>
 </body>
 </html>
